@@ -1,4 +1,23 @@
 #include <ArduinoBLE.h>
+#include "PollingTimer.h"
+
+// ピン割り当て
+#define PIN_BTN_NEXT  D1  // Nextボタン
+#define PIN_BTN_PREV  D2  // Prevボタン
+#define PIN_BTN_BLACK D3  // Blackout/Resumeボタン
+#define PIN_BTN_START D4  // Start/Endボタン
+
+// ボタン入力の値
+enum ButtonInput {
+  BTN_NONE = 0, // 押されていない
+  BTN_NEXT,     // Nextボタン
+  BTN_PREV,     // Prevボタン
+  BTN_BLACK,    // Blackout/Resumeボタン
+  BTN_START     // Start/Endボタン
+};
+
+// ボタン入力の監視用タイマー
+IntervalTimer buttonTimer;
 
 // PowerPointの状態を返す応答データの構造体
 struct PptResponse {
@@ -21,11 +40,34 @@ BLECharacteristic chrCommand ("ba21ce66-9974-4ecd-b2e5-ab6d1497a7f1",
 BLECharacteristic chrResponse("ba21ce66-9974-4ecd-b2e5-ab6d1497a7f2",
                          BLEWrite, sizeof(PptResponse));
 
+// ボタン入力の取得
+ButtonInput get_button_input()
+{
+  const  int buttonPin [4] = {PIN_BTN_NEXT, PIN_BTN_PREV, PIN_BTN_BLACK, PIN_BTN_START};
+  static int lastState [4] = {HIGH, HIGH, HIGH, HIGH};
+  int nowState[4];
+  ButtonInput ret = BTN_NONE;
+  for(int i=0; i<4; i++) {
+    nowState[i] = digitalRead(buttonPin[i]);
+    if(lastState[i] == HIGH && nowState[i] == LOW) {
+      if(ret == BTN_NONE) ret = (ButtonInput)(i + 1); // 若い番号のボタンを優先
+    }
+    lastState[i] = nowState[i];
+  }
+  return ret;
+}
+
 // 初期化
 void setup()
 {
   Serial.begin(115200);
   Serial.println("initializing...");
+
+  // ボタンピンの設定
+  pinMode(PIN_BTN_NEXT,  INPUT_PULLUP);
+  pinMode(PIN_BTN_PREV,  INPUT_PULLUP);
+  pinMode(PIN_BTN_BLACK, INPUT_PULLUP);
+  pinMode(PIN_BTN_START, INPUT_PULLUP);
 
   if (!BLE.begin()) {
     Serial.println("starting BLE failed!");
@@ -59,9 +101,33 @@ void loop()
     Serial.print("Connected to central: ");
     Serial.println(central.address());
 
+    // ボタン入力監視タイマーの開始
+    buttonTimer.set(10); // 10ms周期
+
     // 接続が切れるまで
     while (central.connected())
     {
+      // ボタン入力の監視
+      if (buttonTimer.elapsed()) {
+        ButtonInput btn = get_button_input();
+        char* command = (char*)"";
+        bool isCommand = true;
+        switch(btn) {
+          case BTN_NEXT:  command = (char*)"next";  break;
+          case BTN_PREV:  command = (char*)"prev";  break;
+          case BTN_BLACK: command = (char*)"black"; break;
+          case BTN_START: command = (char*)"start"; break;
+          default:
+            isCommand = false;
+            break;
+        }
+        if(isCommand) {
+          chrCommand.writeValue(command);
+          Serial.print("Notify: ");
+          Serial.println(command);
+        }
+      }
+#if 0
       // コマンド送信
       if(Serial.available()) {
         char c = Serial.read();
@@ -82,7 +148,8 @@ void loop()
           Serial.print("Notify: ");
           Serial.println(command);
         }
-      } 
+      }
+#endif
       // 応答受信
       if (chrResponse.written()) {
         PptResponse *val = (PptResponse*)chrResponse.value();
