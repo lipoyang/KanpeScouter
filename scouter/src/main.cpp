@@ -107,7 +107,7 @@ const uint16_t PPT_STATUS_COLOR[] = {
   TFT_ORANGE,
   TFT_YELLOW,
   TFT_GREEN,
-  TFT_BLUE
+  TFT_CYAN
 };
 
 // PowerPointの状態を返す応答データの構造体
@@ -175,22 +175,16 @@ void on_recv_data(const char* data)
   sprite_h.fillScreen(TFT_BLACK);
   sprite_h.setCursor(0, 0);
   sprite_h.setTextWrap(false);
-  if(ppt.status < PPT_RUNNING){
-    // スライドショーが実行中でない場合は状態表示
-    sprite_h.print(PPT_STATUS_STR[ppt.status]);
-  }else{
-    // スライドショーが実行中は経過時間表示
-    if(ppt.status == PPT_RUNNING){
-      sprite_h.printf("%3d:%02d", 0, 1); // TODO
-    }else{
-      sprite_h.printf("%3d:%02d BO", 0, 1); // TODO // ブラックアウト中
-    }
+  sprite_h.print(PPT_STATUS_STR[ppt.status]);
+  if(ppt.status >= PPT_RUNNING){
+    sprite_h.setCursor(sprite_h.width() / 2, 0);
+    sprite_h.printf("%3d:%02d", 0, 1); // TODO
   }
   sprite_h.pushSprite(FONT_SIZE, 0);
   
   // 本文の表示更新
   sprite_b.setFont(font);
-  sprite_b.setTextColor(TFT_GREEN, TFT_BLACK);
+  sprite_b.setTextColor(TFT_WHITE, TFT_BLACK);
   sprite_b.fillScreen(TFT_BLACK);
   sprite_b.setCursor(0, 0);
   sprite_b.setTextWrap(true);
@@ -201,7 +195,7 @@ void on_recv_data(const char* data)
   sprite_f.setFont(font);
   sprite_f.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
   sprite_f.fillScreen(TFT_BLACK);
-  sprite_f.setCursor(0, 0);
+  sprite_f.setCursor(sprite_f.width() / 2 - FONT_SIZE * 3, 0);
   sprite_f.setTextWrap(false);
   sprite_f.printf("%3d / %d", ppt.currentPage, ppt.totalPages);
   sprite_f.pushSprite(FONT_SIZE, tft.height() - FONT_SIZE);
