@@ -1,4 +1,6 @@
+#include <Arduino.h>
 #include <ArduinoBLE.h>
+#include <Adafruit_NeoPixel.h>
 #include "PollingTimer.h"
 
 // ピン割り当て
@@ -6,6 +8,7 @@
 #define PIN_BTN_PREV  D2  // Prevボタン
 #define PIN_BTN_BLACK D3  // Blackout/Resumeボタン
 #define PIN_BTN_START D4  // Start/Endボタン
+#define PIN_NEOPIXEL  D8  // フルカラーLED
 
 // ボタン入力の値
 enum ButtonInput {
@@ -34,6 +37,7 @@ struct PptResponse {
   uint16_t totalPages;  // 総スライド数
   char note[300];       // 現在のスライドのノート(UTF-8, NULL終端)
 }__attribute__((packed)); // パディングを防ぐ
+PptResponse ppt;
 
 // bool型の代わりに明示的に1バイトの整数型を使う
 const uint8_t TRUE = 1;
@@ -45,6 +49,10 @@ BLECharacteristic chrCommand ("ba21ce66-9974-4ecd-b2e5-ab6d1497a7f1",
                          BLENotify, 20);
 BLECharacteristic chrResponse("ba21ce66-9974-4ecd-b2e5-ab6d1497a7f2",
                          BLEWrite, sizeof(PptResponse));
+
+// フルカラーLED
+Adafruit_NeoPixel pixels = Adafruit_NeoPixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
+const int LED_BRIGHTNESS = 32; // 明るさ(0-255)
 
 // ボタン入力の取得
 ButtonInput get_button_input()
@@ -61,6 +69,37 @@ ButtonInput get_button_input()
     lastState[i] = nowState[i];
   }
   return ret;
+}
+
+// スカウターに送信
+void send_to_scouter()
+{
+  static char tx_buff[512];
+
+  sprintf(tx_buff, "%c%X%04X%04X%s%c",
+          0x02, // STX
+          ppt.status      & 0x0F,
+          ppt.currentPage & 0xFFFF,
+          ppt.totalPages  & 0xFFFF,
+          ppt.note,
+          0x03 // ETX
+        );
+  Serial1.print(tx_buff);
+}
+
+// フルカラーLEDの制御
+void set_led_color()
+{
+  const uint32_t colorTable[] = {
+    0xFF0000, // PPT_OFFLINE  赤
+    0xC04800, // PPT_NO_SLIDE 橙
+    0x808000, // PPT_STOPPED  黄
+    0x00FF00, // PPT_RUNNING  緑
+    0x0000FF  // PPT_BLACKOUT 青
+  };
+
+  pixels.setPixelColor(0, colorTable[ppt.status]);
+  pixels.show();
 }
 
 // 初期化
@@ -99,14 +138,16 @@ void setup()
   BLE.addService(svcPptCtrl);
   BLE.advertise();
 
+  // NeoPixelの初期化
+  pixels.begin();
+  pixels.setBrightness(LED_BRIGHTNESS);
+
   Serial.println("KanpeScouter ready");
 }
 
 // メインループ
 void loop()
 {
-  static char tx_buff[512];
-
   // セントラルから接続されたら
   BLEDevice central = BLE.central();
   if (central)
@@ -151,24 +192,18 @@ void loop()
       }
       // 応答受信
       if (chrResponse.written()) {
-        PptResponse *ppt = (PptResponse*)chrResponse.value();
-        ppt->note[sizeof(ppt->note)-1] = '\0'; // 念のためNULL終端を保証
+        ppt = *(PptResponse*)chrResponse.value();
+        ppt.note[sizeof(ppt.note)-1] = '\0'; // 念のためNULL終端を保証
         Serial.println("Written:");
-        Serial.println(ppt->status);
-        Serial.println(ppt->currentPage); 
-        Serial.println(ppt->totalPages);
-        Serial.println(ppt->note);
+        Serial.println(ppt.status);
+        Serial.println(ppt.currentPage); 
+        Serial.println(ppt.totalPages);
+        Serial.println(ppt.note);
 
         // スカウターに送信
-        sprintf(tx_buff, "%c%X%04X%04X%s%c",
-                0x02, // STX
-                ppt->status      & 0x0F,
-                ppt->currentPage & 0xFFFF,
-                ppt->totalPages  & 0xFFFF,
-                ppt->note,
-                0x03 // ETX
-              );
-        Serial1.print(tx_buff);
+        send_to_scouter();
+        // フルカラーLEDの制御
+        set_led_color();
 
         toGetStatus = false; // 状態取得コマンドを送るフラグをクリア
       }
@@ -177,12 +212,16 @@ void loop()
     Serial.println(central.address());
   } // if (central) ココマデ
 
-  // 切断状態をスカウターに送信
-  sprintf(tx_buff, "%c%X%04X%04X%s%c",
-          0x02, // STX
-          PPT_OFFLINE, 0, 0, (char*)"",
-          0x03 // ETX
-        );
-  Serial1.print(tx_buff);
+  // 切断状態
+  ppt.status = PPT_OFFLINE;
+  ppt.currentPage = 0;
+  ppt.totalPages = 0;
+  ppt.note[0] = '\0';
+
+  // スカウターに送信
+  send_to_scouter();
+  // フルカラーLEDの制御
+  set_led_color();
+
   delay(500);
 }
