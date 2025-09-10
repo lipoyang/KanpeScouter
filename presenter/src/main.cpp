@@ -16,8 +16,9 @@ enum ButtonInput {
   BTN_START     // Start/Endボタン
 };
 
-// ボタン入力の監視用タイマー
+// ポーリングタイマー
 IntervalTimer buttonTimer;
+IntervalTimer statusTimer;
 
 // PowerPointの状態を返す応答データの構造体
 struct PptResponse {
@@ -63,12 +64,17 @@ void setup()
   Serial.begin(115200);
   Serial.println("initializing...");
 
+  // スカウターとの通信用のシリアルポートを初期化
+  Serial1.begin(115200);
+  while (!Serial1){ delay(10); }
+
   // ボタンピンの設定
   pinMode(PIN_BTN_NEXT,  INPUT_PULLUP);
   pinMode(PIN_BTN_PREV,  INPUT_PULLUP);
   pinMode(PIN_BTN_BLACK, INPUT_PULLUP);
   pinMode(PIN_BTN_START, INPUT_PULLUP);
 
+  // BLEの初期化
   if (!BLE.begin()) {
     Serial.println("starting BLE failed!");
     while (1);
@@ -88,7 +94,7 @@ void setup()
   BLE.addService(svcPptCtrl);
   BLE.advertise();
 
-  Serial.println("KanpeScouter Peripheral ready");
+  Serial.println("KanpeScouter ready");
 }
 
 // メインループ
@@ -101,8 +107,10 @@ void loop()
     Serial.print("Connected to central: ");
     Serial.println(central.address());
 
-    // ボタン入力監視タイマーの開始
-    buttonTimer.set(10); // 10ms周期
+    // ポーリングタイマーの設定
+    buttonTimer.set(10);
+    statusTimer.set(1000);
+    bool toGetStatus = true;
 
     // 接続が切れるまで
     while (central.connected())
@@ -127,32 +135,17 @@ void loop()
           Serial.println(command);
         }
       }
-#if 0
-      // コマンド送信
-      if(Serial.available()) {
-        char c = Serial.read();
-        char* command = (char*)"";
-        bool isCommand = true;
-        switch(c) {
-          case 's': command = (char*)"start"; break;
-          case 'n': command = (char*)"next";  break;
-          case 'p': command = (char*)"prev";  break;
-          case 'b': command = (char*)"black"; break;
-          case 'c': command = (char*)"check"; break;
-          default:
-            isCommand = false;
-            break;
-        }
-        if(isCommand) {
-          chrCommand.writeValue(command);
-          Serial.print("Notify: ");
-          Serial.println(command);
-        }
+      // 接続直後には状態取得コマンドを送る
+      if (toGetStatus && statusTimer.elapsed()) {
+        char *command = (char*)"check";
+        chrCommand.writeValue(command);
+        Serial.print("Notify: ");
+        Serial.println(command);
       }
-#endif
       // 応答受信
       if (chrResponse.written()) {
         PptResponse *val = (PptResponse*)chrResponse.value();
+        val->note[sizeof(val->note)-1] = '\0'; // 念のためNULL終端を保証
         Serial.println("Written:");
         Serial.println(val->isActive);
         Serial.println(val->isRunning);
@@ -160,10 +153,25 @@ void loop()
         Serial.println(val->currentPage); 
         Serial.println(val->totalPages);
         Serial.println(val->note);
+
+        // スカウターに送信
+        static char buf[512];
+        sprintf(buf, "%c%X%X%X%04X%04X%s%c",
+                0x02, // STX
+                val->isActive    & 0x0F,
+                val->isRunning   & 0x0F,
+                val->isBlackout  & 0x0F,
+                val->currentPage & 0xFFFF,
+                val->totalPages  & 0xFFFF,
+                val->note,
+                0x03 // ETX
+              );
+        Serial1.print(buf);
+
+        toGetStatus = false; // 状態取得コマンドを送るフラグをクリア
       }
     }
     Serial.print("Disconnected from central: ");
     Serial.println(central.address());
   }
 }
-

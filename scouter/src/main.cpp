@@ -1,3 +1,5 @@
+#include <Arduino.h>
+
 // ピン割り当て
 #define TFT_MISO      -1 // 接続しない
 #define TFT_MOSI      D10
@@ -70,10 +72,31 @@ public:
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite sprite = TFT_eSprite(&tft); // スプライト
 
+// シリアル受信バッファと状態
+enum {
+  RX_IDLE = 0, // 受信待ち
+  RX_RECV,     // 受信中
+};
+char rx_buff[512];
+int rx_index = 0;
+int rx_state = RX_IDLE;
+
+// PowerPointの状態を返す応答データの構造体
+struct PptResponse {
+  uint8_t isActive;     // プレゼンテーションがアクティブかどうか
+  uint8_t isRunning;    // スライドショーが実行中かどうか
+  uint8_t isBlackout;   // ブラックアウトモードかどうか
+  uint16_t currentPage; // 現在のスライド番号（1から始まる）
+  uint16_t totalPages;  // 総スライド数
+  char note[300];       // 現在のスライドのノート(UTF-8, NULL終端)
+};
+PptResponse ppt_status;
+
+// 初期化
 void setup()
 {
   Serial.begin(115200);
-  Serial.println(F("Hello! ST7789 LCD Test"));
+  Serial.println(F("Scouter for PowerPoint"));
 
   // Serial1のTXをGPIO4, RXをGPIO5に割り当て
   Serial1.setTX(UART1_TX);
@@ -92,68 +115,68 @@ void setup()
   sprite.createSprite(screenWidth, screenHeight);
 }
 
-enum {
-  RX_IDLE = 0,
-  RX_STX,
-  RX_MSG,
-  RX_ETX
-};
-char rx_buff[256];
-int rx_index = 0;
-int rx_state = RX_IDLE;
+// プレゼンターから受信したデータの処理
+void on_recv_data(const char* data)
+{
+  Serial.print("RX:");
+  Serial.println(rx_buff);
 
+  // メッセージの解釈
+  int result = sscanf(rx_buff,
+    "%1hhx%1hhx%1hhx%4hhx%4hhx",
+    &ppt_status.isActive,     // [0]
+    &ppt_status.isRunning,    // [1]
+    &ppt_status.isBlackout,   // [2]
+    &ppt_status.currentPage,  // [3]-[6]
+    &ppt_status.totalPages    // [7]-[10]
+  );
+  if(result != 5){
+    Serial.println("ERROR: sscanf");
+    return;
+  }
+  memcpy(ppt_status.note, &rx_buff[11], sizeof(ppt_status.note)-1);
+  ppt_status.note[sizeof(ppt_status.note)-1] = '\0'; // 念のためNULL終端
+
+  const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_24;
+  sprite.setFont(font);
+  sprite.setTextColor(TFT_GREEN, TFT_BLACK);
+  sprite.fillScreen(TFT_BLACK);
+  sprite.setCursor(0, 24);
+  sprite.setTextWrap(true);
+  sprite.println(ppt_status.note);
+  sprite.pushSprite(0, 0);
+}
+
+// プレゼンターからのシリアル受信処理
 void serial_com()
 {
   while(Serial1.available() > 0){
     char c = Serial1.read();
     switch(rx_state){
+      // 受信待ち
       case RX_IDLE:
-        if(c == '$'){
-          rx_state = RX_STX;
-        }
-        break;
-      case RX_STX:
-        if(c == '$'){
-          rx_state = RX_MSG;
+        if(c == 0x02){ // STX
+          rx_state = RX_RECV;
           rx_index = 0;
-        } else {
-          rx_state = RX_IDLE;
         }
         break;
-      case RX_MSG:
-        rx_buff[rx_index] = c;
-        rx_index++;
-        if(rx_index >= sizeof(rx_buff)-1){
-          rx_index = sizeof(rx_buff)-1;
+      // 受信中
+      case RX_RECV:
+        if(c == 0x02){ // STX (途中でSTXが来たら最初から)
+          rx_index = 0;
         }
-        if(c == '&'){
-          rx_state = RX_ETX;
-        }
-        break;
-      case RX_ETX:
-        if(c == '&'){
-          rx_buff[rx_index - 1] = 0x00;
-          // メッセージ受信完了
+        else if(c == 0x03){ // ETX
           rx_state = RX_IDLE;
-          Serial.print("RX:");
-          Serial.println(rx_buff);
-
-          const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_24;
-          sprite.setFont(font);
-          sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-          sprite.fillScreen(TFT_BLACK);
-          sprite.setCursor(0, 24);
-          sprite.setTextWrap(true);
-          sprite.println(rx_buff);
-          sprite.pushSprite(0, 0);
-
-        }else{
+          // 受信したデータの処理
+          rx_buff[rx_index] = '\0';
+          on_recv_data(rx_buff);
+        }
+        else{
           rx_buff[rx_index] = c;
           rx_index++;
           if(rx_index >= sizeof(rx_buff)-1){
             rx_index = sizeof(rx_buff)-1;
           }
-          rx_state = RX_MSG;
         }
         break;
       default:
@@ -163,48 +186,9 @@ void serial_com()
   }
 }
 
+// メインループ
 void loop()
 {
+  // シリアル受信処理
   serial_com();
-
-#if 0
-  // USBシリアルでスペース ' ' を送ると文字サイズが変わる
-  static bool update = true;
-  static bool baikaku = false;
-  while(Serial.available() > 0){
-    char c = Serial.read();
-    if(c == ' '){
-      update = true;
-      baikaku = !baikaku;
-    }
-  }
-
-  if(update){
-    update = false;
-    if(baikaku == false){
-      // 16ドットフォント, 緑色
-      const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_16;
-      sprite.setFont(font);
-      // sprite.setTextSize(2);
-      sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-      sprite.fillScreen(TFT_BLACK);
-      sprite.setCursor(0, 0);
-      sprite.setTextWrap(true);
-      const char* str = text2.c_str();
-      sprite.println(str);
-      sprite.pushSprite(0, 0);
-    }else{
-      // 24ドットフォント, 水色
-      const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_24;
-      sprite.setFont(font);
-      sprite.setTextColor(TFT_CYAN, TFT_BLACK);
-      sprite.fillScreen(TFT_BLACK);
-      sprite.setCursor(0, 0);
-      sprite.setTextWrap(true);
-      const char* str = text1.c_str();
-      sprite.println(str);
-      sprite.pushSprite(0, 0);
-    }
-  }
-#endif
 }
