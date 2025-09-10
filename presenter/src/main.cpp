@@ -20,11 +20,16 @@ enum ButtonInput {
 IntervalTimer buttonTimer;
 IntervalTimer statusTimer;
 
+// PowerPointの状態
+const uint8_t PPT_OFFLINE  = 0; // 未接続状態
+const uint8_t PPT_NO_SLIDE = 1; // スライドショーが無い
+const uint8_t PPT_STOPPED  = 2; // スライドショー停止中
+const uint8_t PPT_RUNNING  = 3; // スライドショー実行中
+const uint8_t PPT_BLACKOUT = 4; // ブラックアウト中
+
 // PowerPointの状態を返す応答データの構造体
 struct PptResponse {
-  uint8_t isActive;     // プレゼンテーションがアクティブかどうか
-  uint8_t isRunning;    // スライドショーが実行中かどうか
-  uint8_t isBlackout;   // ブラックアウトモードかどうか
+  uint8_t status;       // PowerPointの状態
   uint16_t currentPage; // 現在のスライド番号（1から始まる）
   uint16_t totalPages;  // 総スライド数
   char note[300];       // 現在のスライドのノート(UTF-8, NULL終端)
@@ -144,26 +149,22 @@ void loop()
       }
       // 応答受信
       if (chrResponse.written()) {
-        PptResponse *val = (PptResponse*)chrResponse.value();
-        val->note[sizeof(val->note)-1] = '\0'; // 念のためNULL終端を保証
+        PptResponse *ppt = (PptResponse*)chrResponse.value();
+        ppt->note[sizeof(ppt->note)-1] = '\0'; // 念のためNULL終端を保証
         Serial.println("Written:");
-        Serial.println(val->isActive);
-        Serial.println(val->isRunning);
-        Serial.println(val->isBlackout);
-        Serial.println(val->currentPage); 
-        Serial.println(val->totalPages);
-        Serial.println(val->note);
+        Serial.println(ppt->status);
+        Serial.println(ppt->currentPage); 
+        Serial.println(ppt->totalPages);
+        Serial.println(ppt->note);
 
         // スカウターに送信
         static char buf[512];
-        sprintf(buf, "%c%X%X%X%04X%04X%s%c",
+        sprintf(buf, "%c%X%04X%04X%s%c",
                 0x02, // STX
-                val->isActive    & 0x0F,
-                val->isRunning   & 0x0F,
-                val->isBlackout  & 0x0F,
-                val->currentPage & 0xFFFF,
-                val->totalPages  & 0xFFFF,
-                val->note,
+                ppt->status      & 0x0F,
+                ppt->currentPage & 0xFFFF,
+                ppt->totalPages  & 0xFFFF,
+                ppt->note,
                 0x03 // ETX
               );
         Serial1.print(buf);

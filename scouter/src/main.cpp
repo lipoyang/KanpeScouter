@@ -70,7 +70,12 @@ public:
 };
 #include <LGFX_TFT_eSPI.hpp>
 TFT_eSPI tft = TFT_eSPI();
-TFT_eSprite sprite = TFT_eSprite(&tft); // スプライト
+TFT_eSprite sprite_h = TFT_eSprite(&tft); // 上段スプライト
+TFT_eSprite sprite_b = TFT_eSprite(&tft); // 本文スプライト
+TFT_eSprite sprite_f = TFT_eSprite(&tft); // 下段スプライト
+
+// フォントサイズ
+const int FONT_SIZE = 24;
 
 // シリアル受信バッファと状態
 enum {
@@ -81,16 +86,38 @@ char rx_buff[512];
 int rx_index = 0;
 int rx_state = RX_IDLE;
 
+// PowerPointの状態
+const uint8_t PPT_OFFLINE  = 0; // 未接続状態
+const uint8_t PPT_NO_SLIDE = 1; // スライドショーが無い
+const uint8_t PPT_STOPPED  = 2; // スライドショー停止中
+const uint8_t PPT_RUNNING  = 3; // スライドショー実行中
+const uint8_t PPT_BLACKOUT = 4; // ブラックアウト中
+
+// 状態表示の文字列
+const char* PPT_STATUS_STR[] = {
+  "OFFLINE",
+  "NO SLIDE",
+  "STOPPED",
+  "RUNNING",
+  "BLACKOUT"
+};
+// 状態表示の文字色
+const uint16_t PPT_STATUS_COLOR[] = {
+  TFT_RED,
+  TFT_ORANGE,
+  TFT_YELLOW,
+  TFT_GREEN,
+  TFT_BLUE
+};
+
 // PowerPointの状態を返す応答データの構造体
 struct PptResponse {
-  uint8_t isActive;     // プレゼンテーションがアクティブかどうか
-  uint8_t isRunning;    // スライドショーが実行中かどうか
-  uint8_t isBlackout;   // ブラックアウトモードかどうか
+  uint8_t status;       // PowerPointの状態
   uint16_t currentPage; // 現在のスライド番号（1から始まる）
   uint16_t totalPages;  // 総スライド数
   char note[300];       // 現在のスライドのノート(UTF-8, NULL終端)
 };
-PptResponse ppt_status;
+PptResponse ppt;
 
 // 初期化
 void setup()
@@ -112,7 +139,11 @@ void setup()
   // スプライトの初期化
   int screenWidth = tft.width();
   int screenHeight = tft.height();
-  sprite.createSprite(screenWidth, screenHeight);
+  int fontWidth = 24;
+  int fontHeight = 24;
+  sprite_h.createSprite(screenWidth - FONT_SIZE * 2, fontHeight);
+  sprite_b.createSprite(screenWidth, screenHeight - FONT_SIZE * 2);
+  sprite_f.createSprite(screenWidth - FONT_SIZE * 2, fontHeight);
 }
 
 // プレゼンターから受信したデータの処理
@@ -123,28 +154,57 @@ void on_recv_data(const char* data)
 
   // メッセージの解釈
   int result = sscanf(rx_buff,
-    "%1hhx%1hhx%1hhx%4hhx%4hhx",
-    &ppt_status.isActive,     // [0]
-    &ppt_status.isRunning,    // [1]
-    &ppt_status.isBlackout,   // [2]
-    &ppt_status.currentPage,  // [3]-[6]
-    &ppt_status.totalPages    // [7]-[10]
+    "%1hhx%4hhx%4hhx",
+    &ppt.status,       // [0]
+    &ppt.currentPage,  // [1]-[4]
+    &ppt.totalPages    // [5]-[8]
   );
-  if(result != 5){
+  if(result != 3){
     Serial.println("ERROR: sscanf");
     return;
   }
-  memcpy(ppt_status.note, &rx_buff[11], sizeof(ppt_status.note)-1);
-  ppt_status.note[sizeof(ppt_status.note)-1] = '\0'; // 念のためNULL終端
+  memcpy(ppt.note, &rx_buff[9], sizeof(ppt.note)-1);
+  ppt.note[sizeof(ppt.note)-1] = '\0'; // 念のためNULL終端
 
+  // フォント
   const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_24;
-  sprite.setFont(font);
-  sprite.setTextColor(TFT_GREEN, TFT_BLACK);
-  sprite.fillScreen(TFT_BLACK);
-  sprite.setCursor(0, 24);
-  sprite.setTextWrap(true);
-  sprite.println(ppt_status.note);
-  sprite.pushSprite(0, 0);
+
+  // 上段の表示更新
+  sprite_h.setFont(font);
+  sprite_h.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
+  sprite_h.fillScreen(TFT_BLACK);
+  sprite_h.setCursor(0, 0);
+  sprite_h.setTextWrap(false);
+  if(ppt.status < PPT_RUNNING){
+    // スライドショーが実行中でない場合は状態表示
+    sprite_h.print(PPT_STATUS_STR[ppt.status]);
+  }else{
+    // スライドショーが実行中は経過時間表示
+    if(ppt.status == PPT_RUNNING){
+      sprite_h.printf("%3d:%02d", 0, 1); // TODO
+    }else{
+      sprite_h.printf("%3d:%02d BO", 0, 1); // TODO // ブラックアウト中
+    }
+  }
+  sprite_h.pushSprite(FONT_SIZE, 0);
+  
+  // 本文の表示更新
+  sprite_b.setFont(font);
+  sprite_b.setTextColor(TFT_GREEN, TFT_BLACK);
+  sprite_b.fillScreen(TFT_BLACK);
+  sprite_b.setCursor(0, 0);
+  sprite_b.setTextWrap(true);
+  sprite_b.println(ppt.note);
+  sprite_b.pushSprite(0, FONT_SIZE);
+
+  // 下段の表示更新
+  sprite_f.setFont(font);
+  sprite_f.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
+  sprite_f.fillScreen(TFT_BLACK);
+  sprite_f.setCursor(0, 0);
+  sprite_f.setTextWrap(false);
+  sprite_f.printf("%3d / %d", ppt.currentPage, ppt.totalPages);
+  sprite_f.pushSprite(FONT_SIZE, tft.height() - FONT_SIZE);
 }
 
 // プレゼンターからのシリアル受信処理

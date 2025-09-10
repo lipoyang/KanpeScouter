@@ -21,7 +21,14 @@ CHR_RESPONSE_UUID = "ba21ce66-9974-4ecd-b2e5-ab6d1497a7f2"
 TRUE  = 1
 FALSE = 0
 
-# スライドショーの状態定数
+# PowerPointの状態
+#PPT_OFFLINE  = 0   # 未接続状態
+PPT_NO_SLIDE = 1    # スライドショーが無い
+PPT_STOPPED  = 2    # スライドショー停止中
+PPT_RUNNING  = 3    # スライドショー実行中
+PPT_BLACKOUT = 4    # ブラックアウト中
+
+# スライドショーの状態定数 (SlideShowView.State プロパティの値)
 ppSlideShowRunning      = 1 # スライドショー実行中
 ppSlideShowPaused       = 2 # スライドショー一時停止中
 ppSlideShowBlackScreen  = 3 # スライドショーブラックアウト中
@@ -58,7 +65,7 @@ def get_slideshow_view(ppt, pres):
 def send_slideshow_status(ppt, pres, loop):
     # アクティブなプレゼンテーションがない時
     if ppt is None or pres is None:
-        status = struct.pack("<BBBHH", FALSE, FALSE, FALSE, 0, 0)
+        status = struct.pack("<BHH", PPT_NO_SLIDE, 0, 0)
         note_bytes = b"\0"
         response = status + note_bytes
 
@@ -68,22 +75,22 @@ def send_slideshow_status(ppt, pres, loop):
         # スライドショーが実行されていない時
         if view is None:
             total_pages = pres.Slides.Count
-            status = struct.pack("<BBBHH", TRUE, FALSE, FALSE, 0, total_pages)
+            status = struct.pack("<BHH", PPT_STOPPED, 0, total_pages)
             note_bytes = b"\0"
             response = status + note_bytes
         # スライドショーが実行されているが終了している時
         elif view.State == ppSlideShowDone:
             total_pages = pres.Slides.Count
-            status = struct.pack("<BBBHH", TRUE, FALSE, FALSE, 0, total_pages)
+            status = struct.pack("<BHH", PPT_STOPPED, 0, total_pages)
             note_bytes = b"\0"
             response = status + note_bytes
         # スライドショーが実行されている時
         else:
-            is_blackout = TRUE if view.State == ppSlideShowBlackScreen else FALSE # ブラックアウト中か
+            state = PPT_BLACKOUT if view.State == ppSlideShowBlackScreen else PPT_RUNNING
             slide = view.Slide
             current_page = slide.SlideIndex
             total_pages = pres.Slides.Count
-            status = struct.pack("<BBBHH", TRUE, TRUE, is_blackout, current_page, total_pages)
+            status = struct.pack("<BHH", state, current_page, total_pages)
 
             # ノートテキストの取得
             note_page = slide.NotesPage
