@@ -105,6 +105,8 @@ void setup()
 // メインループ
 void loop()
 {
+  static char tx_buff[512];
+
   // セントラルから接続されたら
   BLEDevice central = BLE.central();
   if (central)
@@ -158,8 +160,7 @@ void loop()
         Serial.println(ppt->note);
 
         // スカウターに送信
-        static char buf[512];
-        sprintf(buf, "%c%X%04X%04X%s%c",
+        sprintf(tx_buff, "%c%X%04X%04X%s%c",
                 0x02, // STX
                 ppt->status      & 0x0F,
                 ppt->currentPage & 0xFFFF,
@@ -167,12 +168,21 @@ void loop()
                 ppt->note,
                 0x03 // ETX
               );
-        Serial1.print(buf);
+        Serial1.print(tx_buff);
 
         toGetStatus = false; // 状態取得コマンドを送るフラグをクリア
       }
     }
     Serial.print("Disconnected from central: ");
     Serial.println(central.address());
-  }
+  } // if (central) ココマデ
+
+  // 切断状態をスカウターに送信
+  sprintf(tx_buff, "%c%X%04X%04X%s%c",
+          0x02, // STX
+          PPT_OFFLINE, 0, 0, (char*)"",
+          0x03 // ETX
+        );
+  Serial1.print(tx_buff);
+  delay(500);
 }

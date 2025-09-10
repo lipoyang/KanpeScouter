@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "PollingTimer.h"
 
 // ピン割り当て
 #define TFT_MISO      -1 // 接続しない
@@ -70,7 +71,8 @@ public:
 };
 #include <LGFX_TFT_eSPI.hpp>
 TFT_eSPI tft = TFT_eSPI();
-TFT_eSprite sprite_h = TFT_eSprite(&tft); // 上段スプライト
+TFT_eSprite sprite_h = TFT_eSprite(&tft); // 上段スプライト(状態表示)
+TFT_eSprite sprite_t = TFT_eSprite(&tft); // 上段スプライト(経過時間表示)
 TFT_eSprite sprite_b = TFT_eSprite(&tft); // 本文スプライト
 TFT_eSprite sprite_f = TFT_eSprite(&tft); // 下段スプライト
 
@@ -119,6 +121,11 @@ struct PptResponse {
 };
 PptResponse ppt;
 
+// 経過時間表示用
+bool is_running = false;    // スライドショー実行中か
+uint32_t elapsed_time = 0;  // 経過時間 [秒]
+IntervalTimer onesec_timer; // 1秒タイマー
+
 // 初期化
 void setup()
 {
@@ -139,11 +146,67 @@ void setup()
   // スプライトの初期化
   int screenWidth = tft.width();
   int screenHeight = tft.height();
-  int fontWidth = 24;
-  int fontHeight = 24;
-  sprite_h.createSprite(screenWidth - FONT_SIZE * 2, fontHeight);
+  sprite_h.createSprite(screenWidth / 2 - FONT_SIZE, FONT_SIZE);
+  sprite_t.createSprite(screenWidth / 2 - FONT_SIZE, FONT_SIZE);
   sprite_b.createSprite(screenWidth, screenHeight - FONT_SIZE * 2);
-  sprite_f.createSprite(screenWidth - FONT_SIZE * 2, fontHeight);
+  sprite_f.createSprite(screenWidth - FONT_SIZE * 2, FONT_SIZE);
+}
+
+// 経過時間の表示
+void show_time()
+{
+  // 経過時間
+  int min = elapsed_time / 60;
+  int sec = elapsed_time % 60;
+
+  // フォント
+  const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_24;
+
+  // 経過時間の表示更新
+  sprite_t.setFont(font);
+  sprite_t.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
+  sprite_t.fillScreen(TFT_BLACK);
+  sprite_t.setCursor(0, 0);
+  sprite_t.setTextWrap(false);
+  sprite_t.printf("%3d:%02d", min, sec);
+  sprite_t.pushSprite(tft.width() / 2, 0);
+}
+
+// 画面表示
+void show_status()
+{
+  // フォント
+  const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_24;
+
+  // 上段の表示更新 (状態表示)
+  sprite_h.setFont(font);
+  sprite_h.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
+  sprite_h.fillScreen(TFT_BLACK);
+  sprite_h.setCursor(0, 0);
+  sprite_h.setTextWrap(false);
+  sprite_h.print(PPT_STATUS_STR[ppt.status]);
+  sprite_h.pushSprite(FONT_SIZE, 0);
+
+  // 上段の表示更新 (経過時間表示)
+  show_time();
+
+  // 本文の表示更新
+  sprite_b.setFont(font);
+  sprite_b.setTextColor(TFT_WHITE, TFT_BLACK);
+  sprite_b.fillScreen(TFT_BLACK);
+  sprite_b.setCursor(0, 0);
+  sprite_b.setTextWrap(true);
+  sprite_b.println(ppt.note);
+  sprite_b.pushSprite(0, FONT_SIZE);
+
+  // 下段の表示更新
+  sprite_f.setFont(font);
+  sprite_f.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
+  sprite_f.fillScreen(TFT_BLACK);
+  sprite_f.setCursor(sprite_f.width() / 2 - FONT_SIZE * 3, 0);
+  sprite_f.setTextWrap(false);
+  sprite_f.printf("%3d / %d", ppt.currentPage, ppt.totalPages);
+  sprite_f.pushSprite(FONT_SIZE, tft.height() - FONT_SIZE);
 }
 
 // プレゼンターから受信したデータの処理
@@ -166,39 +229,22 @@ void on_recv_data(const char* data)
   memcpy(ppt.note, &rx_buff[9], sizeof(ppt.note)-1);
   ppt.note[sizeof(ppt.note)-1] = '\0'; // 念のためNULL終端
 
-  // フォント
-  const lgfx::v1::IFont *font = &fonts::lgfxJapanGothic_24;
-
-  // 上段の表示更新
-  sprite_h.setFont(font);
-  sprite_h.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
-  sprite_h.fillScreen(TFT_BLACK);
-  sprite_h.setCursor(0, 0);
-  sprite_h.setTextWrap(false);
-  sprite_h.print(PPT_STATUS_STR[ppt.status]);
+  // 経過時間のリスタート/リセット
   if(ppt.status >= PPT_RUNNING){
-    sprite_h.setCursor(sprite_h.width() / 2, 0);
-    sprite_h.printf("%3d:%02d", 0, 1); // TODO
+    if(!is_running){
+      // スライドショーが開始されたら経過時間をリスタート
+      is_running = true;
+      elapsed_time = 0;
+      onesec_timer.set(1000);
+    }
+  }else{
+    // スライドショー実行中でなければ経過時間はリセット
+    is_running = false;
+    elapsed_time = 0;
   }
-  sprite_h.pushSprite(FONT_SIZE, 0);
-  
-  // 本文の表示更新
-  sprite_b.setFont(font);
-  sprite_b.setTextColor(TFT_WHITE, TFT_BLACK);
-  sprite_b.fillScreen(TFT_BLACK);
-  sprite_b.setCursor(0, 0);
-  sprite_b.setTextWrap(true);
-  sprite_b.println(ppt.note);
-  sprite_b.pushSprite(0, FONT_SIZE);
 
-  // 下段の表示更新
-  sprite_f.setFont(font);
-  sprite_f.setTextColor(PPT_STATUS_COLOR[ppt.status], TFT_BLACK);
-  sprite_f.fillScreen(TFT_BLACK);
-  sprite_f.setCursor(sprite_f.width() / 2 - FONT_SIZE * 3, 0);
-  sprite_f.setTextWrap(false);
-  sprite_f.printf("%3d / %d", ppt.currentPage, ppt.totalPages);
-  sprite_f.pushSprite(FONT_SIZE, tft.height() - FONT_SIZE);
+  // 画面表示の更新
+  show_status();
 }
 
 // プレゼンターからのシリアル受信処理
@@ -245,4 +291,10 @@ void loop()
 {
   // シリアル受信処理
   serial_com();
+
+  // 経過時間の更新
+  if(is_running && onesec_timer.elapsed()){
+    elapsed_time++;
+    show_time();
+  }
 }
