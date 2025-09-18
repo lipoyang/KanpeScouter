@@ -4,10 +4,12 @@
 #include "PollingTimer.h"
 
 // ピン割り当て
-#define PIN_BTN_NEXT  D1  // Nextボタン
-#define PIN_BTN_PREV  D2  // Prevボタン
-#define PIN_BTN_BLACK D3  // Blackout/Resumeボタン
-#define PIN_BTN_START D4  // Start/Endボタン
+#define PIN_BATTERY   A0  // バッテリ電圧測定
+#define PIN_BTN_PREV  D1  // Prevボタン
+#define PIN_BTN_NEXT  D2  // Nextボタン
+#define PIN_BTN_START D3  // Start/Endボタン
+#define PIN_BTN_BLACK D4  // Blackout/Resumeボタン
+#define PIN_LASER_EN  D5  // レーザー出力イネーブル
 #define PIN_NEOPIXEL  D8  // フルカラーLED
 
 // ボタン入力の値
@@ -118,6 +120,15 @@ void setup()
   pinMode(PIN_BTN_BLACK, INPUT_PULLUP);
   pinMode(PIN_BTN_START, INPUT_PULLUP);
 
+  // レーザー出力イネーブルピンの設定
+  pinMode(PIN_LASER_EN, OUTPUT);
+  digitalWrite(PIN_LASER_EN, LOW); // レーザー出力無効
+
+  // バッテリ電圧測定ピンの設定
+  pinMode(PIN_BATTERY, INPUT);
+  analogReference(AR_INTERNAL2V4); // VREF = 2.4V
+  analogReadResolution(10);        // 10bit A/D
+
   // BLEの初期化
   if (!BLE.begin()) {
     Serial.println("starting BLE failed!");
@@ -159,6 +170,9 @@ void loop()
     buttonTimer.set(10);
     statusTimer.set(1000);
     bool toGetStatus = true;
+
+    // レーザー出力有効
+    digitalWrite(PIN_LASER_EN, HIGH);
 
     // 接続が切れるまで
     while (central.connected())
@@ -211,6 +225,9 @@ void loop()
     Serial.print("Disconnected from central: ");
     Serial.println(central.address());
   } // if (central) ココマデ
+
+  // レーザー出力無効
+  digitalWrite(PIN_LASER_EN, LOW);
 
   // 切断状態
   ppt.status = PPT_OFFLINE;
