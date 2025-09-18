@@ -24,6 +24,7 @@ enum ButtonInput {
 // ポーリングタイマー
 IntervalTimer buttonTimer;
 IntervalTimer statusTimer;
+IntervalTimer batteryTimer;
 
 // PowerPointの状態
 const uint8_t PPT_OFFLINE  = 0; // 未接続状態
@@ -55,6 +56,9 @@ BLECharacteristic chrResponse("ba21ce66-9974-4ecd-b2e5-ab6d1497a7f2",
 // フルカラーLED
 Adafruit_NeoPixel pixels = Adafruit_NeoPixel(1, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 const int LED_BRIGHTNESS = 32; // 明るさ(0-255)
+
+// バッテリー電圧の閾値
+const float LOW_BATTERY  = 2.0f; // 低バッテリー警告
 
 // ボタン入力の取得
 ButtonInput get_button_input()
@@ -102,6 +106,33 @@ void set_led_color()
 
   pixels.setPixelColor(0, colorTable[ppt.status]);
   pixels.show();
+}
+
+// バッテリー電圧の取得
+void get_battery_voltage()
+{
+  static bool blink = false;
+
+  int adc = analogRead(PIN_BATTERY);
+  float v = (float)adc * (2.4f / 1023.0f) * 2.0f; // 分圧回路のため2倍する
+
+  //Serial.print("Battery Voltage: ");
+  //Serial.println(v);
+
+  // 低バッテリー警告 (LEDを点滅させる)
+  if (v <= LOW_BATTERY) {
+    Serial.println("Low Battery Warning!");
+    if (blink) {
+      set_led_color();
+    } else {
+      pixels.setPixelColor(0, 0x000000);
+      pixels.show();
+    }
+    blink = !blink;
+  }else{
+    blink = false;
+    set_led_color();
+  }
 }
 
 // 初期化
@@ -169,6 +200,7 @@ void loop()
     // ポーリングタイマーの設定
     buttonTimer.set(10);
     statusTimer.set(1000);
+    batteryTimer.set(500);
     bool toGetStatus = true;
 
     // レーザー出力有効
@@ -221,7 +253,12 @@ void loop()
 
         toGetStatus = false; // 状態取得コマンドを送るフラグをクリア
       }
-    }
+      // バッテリー電圧の取得
+      if (batteryTimer.elapsed()) {
+        get_battery_voltage();
+      }
+    } // while (central.connected()) ココマデ
+
     Serial.print("Disconnected from central: ");
     Serial.println(central.address());
   } // if (central) ココマデ
@@ -239,6 +276,9 @@ void loop()
   send_to_scouter();
   // フルカラーLEDの制御
   set_led_color();
+
+  // バッテリー電圧の取得
+  get_battery_voltage();
 
   delay(500);
 }
