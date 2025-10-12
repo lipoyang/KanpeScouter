@@ -13,3 +13,4 @@ PowerPointのノート(カンペ)を単眼式グラスに映します。また�
 * [mechanical/scouter](./mechanical/scouter/) : スカウターの筐体設計データ
 * [mechanical/presenter](./mechanical/presenter/) : プレゼンターの筐体設計データ
 * [service](./service/) : PC側のサービスのソースコード (Python)
+* [docs/BOM.md](docs/BOM.md) : おもな部品リスト
