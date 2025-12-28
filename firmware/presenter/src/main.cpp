@@ -7,8 +7,8 @@
 #define PIN_BATTERY   A0  // バッテリ電圧測定
 #define PIN_BTN_PREV  D1  // Prevボタン
 #define PIN_BTN_NEXT  D2  // Nextボタン
-#define PIN_BTN_START D3  // Start/Endボタン
-#define PIN_BTN_BLACK D4  // Blackout/Resumeボタン
+#define PIN_BTN_START D4  // Start/Endボタン
+#define PIN_BTN_BLACK D3  // Blackout/Resumeボタン
 #define PIN_LASER_EN  D5  // レーザー出力イネーブル
 #define PIN_NEOPIXEL  D8  // フルカラーLED
 
