@@ -10,11 +10,11 @@ FILE_DESCRIPTION(
 
 FILE_NAME(
 /* name */ 'Presenter.step',
-/* time_stamp */ '2025-10-11T10:51:34+09:00',
+/* time_stamp */ '2025-12-28T18:58:23+09:00',
 /* author */ (''),
 /* organization */ (''),
 /* preprocessor_version */ 'ST-DEVELOPER v20.1',
-/* originating_system */ 'Autodesk Translation Framework v14.17.0.0',
+/* originating_system */ 'Autodesk Translation Framework v14.21.0.0',
 /* authorisation */ '');
 
 FILE_SCHEMA (('AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }'));
@@ -47,8 +47,8 @@ DATA;
 #31=MANIFOLD_SOLID_BREP('BottomShell',#7120);
 #32=MANIFOLD_SOLID_BREP('TopBar',#7121);
 #33=MANIFOLD_SOLID_BREP('BottomPlate',#7122);
-#34=MANIFOLD_SOLID_BREP('RightPlate',#7123);
-#35=MANIFOLD_SOLID_BREP('LeftPlate',#7124);
+#34=MANIFOLD_SOLID_BREP('LeftPlate',#7123);
+#35=MANIFOLD_SOLID_BREP('RightPlate',#7124);
 #36=MANIFOLD_SOLID_BREP('TopPlate',#7125);
 #37=MANIFOLD_SOLID_BREP('BackPlate',#7126);
 #38=MANIFOLD_SOLID_BREP('FrontPlate',#7127);
